@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
@@ -78,29 +79,45 @@ def fetch_threads(
         return [], None, None
 
     results: dict[str, dict] = {}
+    failed_ids: list[str] = []
 
     def _handle_thread_response(request_id: str, response: dict, exception: Exception | None):
         if exception:
+            failed_ids.append(request_id)
             logger.warning("Failed to fetch thread %s: %s", request_id, exception)
             return
         parsed = _parse_thread(response)
         if parsed:
             results[request_id] = parsed
 
-    batch_size = 50
-    for i in range(0, len(thread_ids), batch_size):
-        batch: BatchHttpRequest = service.new_batch_http_request(callback=_handle_thread_response)
-        for thread_id in thread_ids[i : i + batch_size]:
-            batch.add(
-                service.users().threads().get(
-                    userId="me",
-                    id=thread_id,
-                    format="metadata",
-                    metadataHeaders=["Subject", "From", "Date"],
-                ),
-                request_id=thread_id,
-            )
-        batch.execute()
+    batch_size = 25
+    max_retries = 2
+
+    remaining_ids = list(thread_ids)
+    for attempt in range(1 + max_retries):
+        if not remaining_ids:
+            break
+
+        if attempt > 0:
+            time.sleep(1 * attempt)
+            logger.info("Retrying %d failed threads (attempt %d)", len(remaining_ids), attempt + 1)
+
+        failed_ids = []
+        for i in range(0, len(remaining_ids), batch_size):
+            batch: BatchHttpRequest = service.new_batch_http_request(callback=_handle_thread_response)
+            for thread_id in remaining_ids[i : i + batch_size]:
+                batch.add(
+                    service.users().threads().get(
+                        userId="me",
+                        id=thread_id,
+                        format="metadata",
+                        metadataHeaders=["Subject", "From", "Date"],
+                    ),
+                    request_id=thread_id,
+                )
+            batch.execute()
+
+        remaining_ids = failed_ids
 
     ordered_results = [results[tid] for tid in thread_ids if tid in results]
 
