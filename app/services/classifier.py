@@ -1,8 +1,11 @@
 import asyncio
+import logging
 
 from openai import AsyncOpenAI
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 client = AsyncOpenAI(api_key=settings.openai_api_key)
 
@@ -56,14 +59,13 @@ async def classify_email(
         max_tokens=50,
     )
 
-    result = response.choices[0].message.content.strip()
+    result = (response.choices[0].message.content or "").strip()
 
-    # Validate the response is one of the category names (case-insensitive match)
     for name in category_names:
         if result.lower() == name.lower():
             return name
 
-    # Fallback: return the first category if LLM gives an unexpected response
+    logger.warning("LLM returned unexpected category '%s', falling back to first", result)
     return category_names[0] if category_names else result
 
 
@@ -76,11 +78,15 @@ async def classify_emails(
     """Classify multiple emails concurrently. Returns mapping of gmail_thread_id -> category_name."""
     semaphore = asyncio.Semaphore(max_concurrent)
 
-    async def _classify_with_limit(email: dict) -> tuple[str, str]:
+    async def _classify_with_limit(email: dict) -> tuple[str, str | None]:
         async with semaphore:
-            category = await classify_email(email, categories, user_notes)
-            return email["gmail_thread_id"], category
+            try:
+                category = await classify_email(email, categories, user_notes)
+                return email["gmail_thread_id"], category
+            except Exception:
+                logger.exception("Failed to classify email %s", email.get("gmail_thread_id"))
+                return email["gmail_thread_id"], None
 
     tasks = [_classify_with_limit(e) for e in emails]
     results = await asyncio.gather(*tasks)
-    return dict(results)
+    return {tid: cat for tid, cat in results if cat is not None}

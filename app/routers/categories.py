@@ -1,4 +1,4 @@
-import asyncio
+import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import delete, select
@@ -15,72 +15,91 @@ from app.models.user import User
 from app.schemas.category import CategoriesBulkUpdate, CategoryResponse
 from app.services.classifier import classify_emails
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/categories", tags=["categories"])
 
 
-async def _reclassify_all(user_id: str, db_url: str):
-    """Background task: delete all classifications and reclassify everything."""
+async def _reclassify_all(user_id: str):
+    """Background task: reclassify all threads. Deletes old classifications only
+    after new ones are computed, so the user never sees an empty state."""
     from app.database import async_session
 
-    async with async_session() as db:
-        user_result = await db.execute(select(User).where(User.id == user_id))
-        user = user_result.scalar_one_or_none()
-        if not user or not user.access_token:
-            return
+    try:
+        async with async_session() as db:
+            user_result = await db.execute(select(User).where(User.id == user_id))
+            user = user_result.scalar_one_or_none()
+            if not user or not user.access_token:
+                return
 
-        from app.auth import decrypt_token
+            cat_result = await db.execute(
+                select(Category).where(Category.user_id == user_id).order_by(Category.name)
+            )
+            categories = [
+                {"name": c.name, "description": c.description, "id": str(c.id)}
+                for c in cat_result.scalars().all()
+            ]
 
-        # Delete existing classifications
-        threads_result = await db.execute(
-            select(EmailThread).where(EmailThread.user_id == user_id)
-        )
-        thread_ids = [t.id for t in threads_result.scalars().all()]
-        if thread_ids:
-            await db.execute(
-                delete(Classification).where(Classification.email_thread_id.in_(thread_ids))
+            if not categories:
+                await db.execute(
+                    delete(Classification).where(
+                        Classification.email_thread_id.in_(
+                            select(EmailThread.id).where(EmailThread.user_id == user_id)
+                        )
+                    )
+                )
+                await db.commit()
+                return
+
+            threads_result = await db.execute(
+                select(EmailThread).where(EmailThread.user_id == user_id)
+            )
+            threads = threads_result.scalars().all()
+
+            if not threads:
+                return
+
+            emails_for_llm = [
+                {
+                    "gmail_thread_id": t.gmail_thread_id,
+                    "subject": t.subject,
+                    "sender": t.sender,
+                    "snippet": t.snippet,
+                    "date": str(t.date) if t.date else None,
+                }
+                for t in threads
+            ]
+
+            classification_map = await classify_emails(
+                emails_for_llm, categories, user.prompt_notes
             )
 
-        # Fetch categories
-        cat_result = await db.execute(
-            select(Category).where(Category.user_id == user_id).order_by(Category.name)
-        )
-        categories = [{"name": c.name, "description": c.description, "id": str(c.id)}
-                       for c in cat_result.scalars().all()]
+            # Only delete old classifications after new ones are computed
+            await db.execute(
+                delete(Classification).where(
+                    Classification.email_thread_id.in_(
+                        select(EmailThread.id).where(EmailThread.user_id == user_id)
+                    )
+                )
+            )
 
-        if not categories:
+            cat_name_to_id = {c["name"]: c["id"] for c in categories}
+            for thread in threads:
+                cat_name = classification_map.get(thread.gmail_thread_id)
+                cat_id = cat_name_to_id.get(cat_name)
+                if cat_id:
+                    db.add(
+                        Classification(
+                            email_thread_id=thread.id,
+                            category_id=cat_id,
+                        )
+                    )
+
             await db.commit()
-            return
+            logger.info("Reclassified %d threads for user %s", len(threads), user_id)
 
-        # Fetch all threads
-        threads_result = await db.execute(
-            select(EmailThread).where(EmailThread.user_id == user_id)
-        )
-        threads = threads_result.scalars().all()
-
-        emails_for_llm = [
-            {
-                "gmail_thread_id": t.gmail_thread_id,
-                "subject": t.subject,
-                "sender": t.sender,
-                "snippet": t.snippet,
-                "date": str(t.date) if t.date else None,
-            }
-            for t in threads
-        ]
-
-        classification_map = await classify_emails(emails_for_llm, categories, user.prompt_notes)
-
-        cat_name_to_id = {c["name"]: c["id"] for c in categories}
-        for thread in threads:
-            cat_name = classification_map.get(thread.gmail_thread_id)
-            cat_id = cat_name_to_id.get(cat_name)
-            if cat_id:
-                db.add(Classification(
-                    email_thread_id=thread.id,
-                    category_id=cat_id,
-                ))
-
-        await db.commit()
+    except Exception:
+        logger.exception("Reclassification failed for user %s", user_id)
 
 
 @router.get("", response_model=list[CategoryResponse])
@@ -104,23 +123,17 @@ async def bulk_update_categories(
     if not body.categories:
         raise HTTPException(status_code=400, detail="At least one category is required")
 
-    # Fetch existing categories
-    result = await db.execute(
-        select(Category).where(Category.user_id == user.id)
-    )
+    result = await db.execute(select(Category).where(Category.user_id == user.id))
     existing = {str(c.id): c for c in result.scalars().all()}
 
-    # Determine changes
     incoming_ids = {str(c.id) for c in body.categories if c.id}
     has_changes = False
 
-    # Delete categories not in the incoming list
     for cat_id, cat in existing.items():
         if cat_id not in incoming_ids:
             await db.delete(cat)
             has_changes = True
 
-    # Update existing / create new
     for cat_data in body.categories:
         if cat_data.id and str(cat_data.id) in existing:
             cat = existing[str(cat_data.id)]
@@ -129,17 +142,19 @@ async def bulk_update_categories(
                 cat.description = cat_data.description
                 has_changes = True
         else:
-            db.add(Category(
-                user_id=user.id,
-                name=cat_data.name,
-                description=cat_data.description,
-            ))
+            db.add(
+                Category(
+                    user_id=user.id,
+                    name=cat_data.name,
+                    description=cat_data.description,
+                )
+            )
             has_changes = True
 
     await db.commit()
 
     if has_changes:
-        background_tasks.add_task(_reclassify_all, str(user.id), settings.database_url)
+        background_tasks.add_task(_reclassify_all, str(user.id))
 
     result = await db.execute(
         select(Category).where(Category.user_id == user.id).order_by(Category.name)
@@ -153,16 +168,14 @@ async def reset_categories(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Delete all existing categories (cascades to classifications)
     await db.execute(delete(Category).where(Category.user_id == user.id))
 
-    # Re-seed defaults
     for cat in DEFAULT_CATEGORIES:
         db.add(Category(user_id=user.id, name=cat["name"], description=cat["description"]))
 
     await db.commit()
 
-    background_tasks.add_task(_reclassify_all, str(user.id), settings.database_url)
+    background_tasks.add_task(_reclassify_all, str(user.id))
 
     result = await db.execute(
         select(Category).where(Category.user_id == user.id).order_by(Category.name)

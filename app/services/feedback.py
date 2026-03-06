@@ -1,6 +1,10 @@
+import logging
+
 from openai import AsyncOpenAI
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 client = AsyncOpenAI(api_key=settings.openai_api_key)
 
@@ -42,4 +46,4 @@ async def learn_from_feedback(
         max_tokens=500,
     )
 
-    return response.choices[0].message.content.strip()
+    return (response.choices[0].message.content or "").strip()

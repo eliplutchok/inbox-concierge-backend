@@ -457,13 +457,6 @@ The entire UI takes strong inspiration from Gmail's layout and aesthetic, adapte
 - Caching: only classify unclassified threads
 - Deployed on Railway
 
-### Stretch Goals
-
-- In-app email detail view (expand or side panel showing full email body)
-- Search/filter within a category
-- Keyboard shortcuts
-- Responsive sidebar (collapse on mobile)
-- Batch classification (multiple emails per LLM call for speed)
 
 ### Abstraction Points (designed for easy iteration)
 

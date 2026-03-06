@@ -1,6 +1,8 @@
+import asyncio
+import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
@@ -15,6 +17,8 @@ from app.database import get_db
 from app.models.category import Category
 from app.models.user import User
 from app.schemas.auth import UserResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -45,21 +49,40 @@ async def login(request: Request):
         include_granted_scopes="true",
         prompt="consent",
     )
-    return RedirectResponse(auth_url)
+    response = RedirectResponse(auth_url)
+    if flow.code_verifier:
+        response.set_cookie(
+            "code_verifier", flow.code_verifier, httponly=True, max_age=600, samesite="lax"
+        )
+    return response
 
 
 @router.get("/callback", name="auth_callback")
 async def callback(request: Request, code: str, db: AsyncSession = Depends(get_db)):
     redirect_uri = str(request.url_for("auth_callback"))
     flow = _create_flow(redirect_uri)
-    flow.fetch_token(code=code)
+
+    code_verifier = request.cookies.get("code_verifier")
+    flow.code_verifier = code_verifier
+
+    try:
+        await asyncio.to_thread(flow.fetch_token, code=code)
+    except Exception:
+        logger.exception("OAuth token exchange failed")
+        return RedirectResponse(f"{settings.frontend_url}?error=auth_failed")
 
     credentials = flow.credentials
-    id_info = id_token.verify_oauth2_token(
-        credentials.id_token,
-        google_requests.Request(),
-        settings.google_client_id,
-    )
+
+    try:
+        id_info = await asyncio.to_thread(
+            id_token.verify_oauth2_token,
+            credentials.id_token,
+            google_requests.Request(),
+            settings.google_client_id,
+        )
+    except Exception:
+        logger.exception("ID token verification failed")
+        return RedirectResponse(f"{settings.frontend_url}?error=auth_failed")
 
     google_id = id_info["sub"]
     email = id_info.get("email", "")
@@ -90,7 +113,9 @@ async def callback(request: Request, code: str, db: AsyncSession = Depends(get_d
     await db.commit()
 
     token = create_jwt(user.id)
-    return RedirectResponse(f"{settings.frontend_url}?token={token}")
+    response = RedirectResponse(f"{settings.frontend_url}?token={token}")
+    response.delete_cookie("code_verifier")
+    return response
 
 
 @router.get("/me", response_model=UserResponse)
