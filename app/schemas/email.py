@@ -15,6 +15,7 @@ class EmailThreadResponse(BaseModel):
     category_id: UUID | None
     category_name: str | None
     is_user_corrected: bool
+    classified_at: datetime | None
 
     model_config = {"from_attributes": True}
 

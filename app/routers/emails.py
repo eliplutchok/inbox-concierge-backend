@@ -124,6 +124,7 @@ async def get_emails(
             category_id=thread.category_id,
             category_name=cat_id_to_name.get(str(thread.category_id)) if thread.category_id else None,
             is_user_corrected=thread.is_user_corrected,
+            classified_at=thread.classified_at,
         )
         for thread in all_db_threads
     ]
