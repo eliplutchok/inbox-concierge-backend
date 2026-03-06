@@ -1,6 +1,9 @@
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
+
+os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
