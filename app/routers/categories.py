@@ -5,7 +5,6 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
-from app.config import settings
 from app.constants import DEFAULT_CATEGORIES
 from app.database import get_db
 from app.models.category import Category
@@ -13,7 +12,12 @@ from app.models.classification import Classification
 from app.models.email_thread import EmailThread
 from app.models.user import User
 from app.schemas.category import CategoriesBulkUpdate, CategoryResponse
-from app.services.classifier import classify_emails
+from app.services.classifier import (
+    build_category_dicts,
+    build_emails_for_llm,
+    classify_emails,
+    persist_classifications,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +39,7 @@ async def _reclassify_all(user_id: str):
             cat_result = await db.execute(
                 select(Category).where(Category.user_id == user_id).order_by(Category.name)
             )
-            categories = [
-                {"name": c.name, "description": c.description, "id": str(c.id)}
-                for c in cat_result.scalars().all()
-            ]
+            categories = build_category_dicts(cat_result.scalars().all())
 
             if not categories:
                 await db.execute(
@@ -59,22 +60,12 @@ async def _reclassify_all(user_id: str):
             if not threads:
                 return
 
-            emails_for_llm = [
-                {
-                    "gmail_thread_id": t.gmail_thread_id,
-                    "subject": t.subject,
-                    "sender": t.sender,
-                    "snippet": t.snippet,
-                    "date": str(t.date) if t.date else None,
-                }
-                for t in threads
-            ]
+            emails_for_llm = build_emails_for_llm(threads)
 
             classification_map = await classify_emails(
                 emails_for_llm, categories, user.prompt_notes
             )
 
-            # Only delete old classifications after new ones are computed
             await db.execute(
                 delete(Classification).where(
                     Classification.email_thread_id.in_(
@@ -83,17 +74,7 @@ async def _reclassify_all(user_id: str):
                 )
             )
 
-            cat_name_to_id = {c["name"]: c["id"] for c in categories}
-            for thread in threads:
-                cat_name = classification_map.get(thread.gmail_thread_id)
-                cat_id = cat_name_to_id.get(cat_name)
-                if cat_id:
-                    db.add(
-                        Classification(
-                            email_thread_id=thread.id,
-                            category_id=cat_id,
-                        )
-                    )
+            persist_classifications(db, threads, classification_map, categories)
 
             await db.commit()
             logger.info("Reclassified %d threads for user %s", len(threads), user_id)

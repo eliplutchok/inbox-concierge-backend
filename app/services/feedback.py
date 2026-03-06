@@ -46,4 +46,6 @@ async def learn_from_feedback(
         max_tokens=500,
     )
 
-    return (response.choices[0].message.content or "").strip()
+    result = (response.choices[0].message.content or "").strip()
+    logger.info("Updated preference notes (%d chars)", len(result))
+    return result

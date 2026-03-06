@@ -1,9 +1,12 @@
 import asyncio
 import logging
+from typing import Any, Sequence
 
 from openai import AsyncOpenAI
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.models.classification import Classification
 
 logger = logging.getLogger(__name__)
 
@@ -90,3 +93,43 @@ async def classify_emails(
     tasks = [_classify_with_limit(e) for e in emails]
     results = await asyncio.gather(*tasks)
     return {tid: cat for tid, cat in results if cat is not None}
+
+
+def build_category_dicts(categories: Sequence[Any]) -> list[dict]:
+    """Convert ORM Category objects to dicts for classify_emails."""
+    return [
+        {"name": c.name, "description": c.description, "id": str(c.id)}
+        for c in categories
+    ]
+
+
+def build_emails_for_llm(threads: Sequence[Any]) -> list[dict]:
+    """Convert ORM EmailThread objects to dicts for classify_emails."""
+    return [
+        {
+            "gmail_thread_id": t.gmail_thread_id,
+            "subject": t.subject,
+            "sender": t.sender,
+            "snippet": t.snippet,
+            "date": str(t.date) if t.date else None,
+        }
+        for t in threads
+    ]
+
+
+def persist_classifications(
+    db: AsyncSession,
+    threads: Sequence[Any],
+    classification_map: dict[str, str],
+    categories: list[dict],
+) -> int:
+    """Create Classification records from a classification_map. Returns count created."""
+    cat_name_to_id = {c["name"]: c["id"] for c in categories}
+    count = 0
+    for thread in threads:
+        cat_name = classification_map.get(thread.gmail_thread_id)
+        cat_id = cat_name_to_id.get(cat_name)
+        if cat_id:
+            db.add(Classification(email_thread_id=thread.id, category_id=cat_id))
+            count += 1
+    return count

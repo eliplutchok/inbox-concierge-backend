@@ -1,11 +1,11 @@
 import asyncio
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import timezone
 
 os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests

@@ -9,7 +9,6 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.models.category import Category
 from app.models.classification import Classification
-from app.models.email_thread import EmailThread
 from app.models.user import User
 from app.schemas.classification import ClassificationUpdate
 from app.services.feedback import learn_from_feedback
