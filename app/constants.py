@@ -23,4 +23,8 @@ DEFAULT_CATEGORIES = [
         "name": "Newsletter",
         "description": "Newsletters and subscription content",
     },
+    {
+        "name": "Other",
+        "description": "Emails that don't fit into any other category",
+    },
 ]

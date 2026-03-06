@@ -8,11 +8,17 @@ logger = logging.getLogger(__name__)
 
 client = AsyncOpenAI(api_key=settings.openai_api_key)
 
-SYSTEM_PROMPT = (
-    "You help refine email classification rules for a specific user. Based on a "
-    "correction the user made, update their preference notes to improve future "
-    "classifications. Keep notes concise (max 10 bullet points). Return ONLY the "
-    "updated notes as a bullet list."
+INSTRUCTIONS = (
+    "You refine email classification preferences for a specific user. "
+    "When the user corrects a classification, you analyze the correction and produce "
+    "an updated set of preference notes that will help future classifications.\n\n"
+    "Guidelines:\n"
+    "- Return the COMPLETE updated notes — your output replaces the previous notes entirely\n"
+    "- Each note should be a concise bullet point describing a classification preference\n"
+    "- Consolidate related or redundant rules into single bullets\n"
+    "- Focus on patterns (sender domains, subject keywords, content themes) not individual emails\n"
+    "- Remove notes that contradict the latest correction\n"
+    "- Return ONLY the bullet list, no preamble or explanation"
 )
 
 
@@ -23,29 +29,27 @@ async def learn_from_feedback(
     current_notes: str | None,
 ) -> str:
     """Generate updated user preference notes based on a classification correction."""
-    user_message = (
+    user_input = (
         f'The user moved an email from "{old_category}" to "{new_category}".\n\n'
         f"Email details:\n"
         f"- Subject: {email.get('subject', '(no subject)')}\n"
         f"- From: {email.get('sender', 'unknown')}\n"
         f"- Preview: {email.get('snippet', '')}\n\n"
-        f"Current user preference notes:\n"
-        f"{current_notes or 'None yet.'}\n\n"
-        f"Based on this correction, generate updated preference notes that would help "
-        f"classify similar emails correctly in the future. Consolidate related rules. "
-        f"If notes exceed 10 bullets, merge or remove the least important ones."
+        f"Current preference notes:\n"
+        f"{current_notes or 'None yet — this is the first correction.'}\n\n"
+        f"Produce the complete updated preference notes incorporating this correction. "
+        f"Consolidate where possible but keep all meaningful rules."
     )
 
-    response = await client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
+    response = await client.responses.create(
+        model="gpt-4o",
+        instructions=INSTRUCTIONS,
+        input=user_input,
         temperature=0.3,
-        max_tokens=500,
+        max_output_tokens=1000,
+        store=False,
     )
 
-    result = (response.choices[0].message.content or "").strip()
+    result = (response.output_text or "").strip()
     logger.info("Updated preference notes (%d chars)", len(result))
     return result
