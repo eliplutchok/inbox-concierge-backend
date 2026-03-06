@@ -1,3 +1,4 @@
+import html
 import logging
 import time
 from datetime import datetime, timezone
@@ -54,7 +55,7 @@ def _parse_thread(thread: dict) -> dict | None:
         "gmail_message_id": latest_message["id"],
         "subject": _extract_header(headers, "Subject"),
         "sender": _extract_header(headers, "From"),
-        "snippet": thread.get("snippet", ""),
+        "snippet": html.unescape(latest_message.get("snippet", "")),
         "date": parsed_date,
     }
 
@@ -110,8 +111,7 @@ def fetch_threads(
                     service.users().threads().get(
                         userId="me",
                         id=thread_id,
-                        format="metadata",
-                        metadataHeaders=["Subject", "From", "Date"],
+                        fields="id,messages(id,snippet,payload/headers)",
                     ),
                     request_id=thread_id,
                 )

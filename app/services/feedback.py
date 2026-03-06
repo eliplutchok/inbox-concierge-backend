@@ -65,7 +65,7 @@ async def learn_from_feedback(
     )
 
     response = await client.responses.create(
-        model="gpt-4o",
+        model="gpt-5.4-2026-03-05",
         instructions=FEEDBACK_INSTRUCTIONS,
         input=user_input,
         temperature=0.3,
@@ -103,7 +103,7 @@ async def adapt_notes_for_categories(
     )
 
     response = await client.responses.create(
-        model="gpt-4o",
+        model="gpt-5.4-2026-03-05",
         instructions=CATEGORY_CHANGE_INSTRUCTIONS,
         input=user_input,
         temperature=0.2,
