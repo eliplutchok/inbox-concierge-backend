@@ -11,15 +11,18 @@ client = AsyncOpenAI(api_key=settings.openai_api_key)
 FEEDBACK_INSTRUCTIONS = (
     "You refine email classification preferences for a specific user of Inbox Concierge, "
     "an app that sorts Gmail into custom categories.\n\n"
-    "When the user corrects a classification (drags an email to a different category), "
-    "you analyze the correction and produce updated preference notes. These notes are "
-    "fed to the classifier on every future email to personalize its decisions.\n\n"
+    "When the user corrects a classification, you analyze WHY the email belongs in "
+    "the new category and produce updated preference notes. These notes guide the "
+    "classifier on every future email.\n\n"
     "Guidelines:\n"
-    "- Return the COMPLETE updated notes — your output replaces the previous notes entirely\n"
-    "- Each note should be a concise bullet point describing a classification preference\n"
-    "- Consolidate related or redundant rules into single bullets\n"
-    "- Focus on patterns (sender domains, subject keywords, content themes) not individual emails\n"
+    "- Think about what makes this email belong in the target category: the topic, "
+    "content type, purpose, subject patterns, or sender domain — not just who sent it\n"
+    "- Prefer thematic rules (e.g. 'Investment/brokerage account notifications → FYI') "
+    "over per-sender rules (e.g. 'noreply@robinhood.com → FYI')\n"
+    "- Only use sender-specific rules when the sender is genuinely the distinguishing factor\n"
+    "- Consolidate related rules into broader patterns when possible\n"
     "- Remove notes that contradict the latest correction\n"
+    "- Return the COMPLETE updated notes — your output replaces the previous notes entirely\n"
     "- Return ONLY the bullet list, no preamble or explanation"
 )
 
@@ -53,10 +56,12 @@ async def learn_from_feedback(
         f"- Subject: {email.get('subject', '(no subject)')}\n"
         f"- From: {email.get('sender', 'unknown')}\n"
         f"- Preview: {email.get('snippet', '')}\n\n"
+        f"First, consider: what about this email's content, purpose, or topic makes "
+        f'it belong in "{new_category}" rather than "{old_category}"? '
+        f"Use that reasoning to write a generalizable rule.\n\n"
         f"Current preference notes:\n"
         f"{current_notes or 'None yet — this is the first correction.'}\n\n"
-        f"Produce the complete updated preference notes incorporating this correction. "
-        f"Consolidate where possible but keep all meaningful rules."
+        f"Produce the complete updated preference notes incorporating this correction."
     )
 
     response = await client.responses.create(
