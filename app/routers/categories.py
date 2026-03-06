@@ -1,22 +1,21 @@
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
 from app.constants import DEFAULT_CATEGORIES
 from app.database import get_db
 from app.models.category import Category
-from app.models.classification import Classification
 from app.models.email_thread import EmailThread
 from app.models.user import User
 from app.schemas.category import CategoriesBulkUpdate, CategoryResponse
 from app.services.classifier import (
+    apply_classifications,
     build_category_dicts,
     build_emails_for_llm,
     classify_emails,
-    persist_classifications,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,8 +24,8 @@ router = APIRouter(prefix="/api/categories", tags=["categories"])
 
 
 async def _reclassify_all(user_id: str):
-    """Background task: reclassify all threads. Deletes old classifications only
-    after new ones are computed, so the user never sees an empty state."""
+    """Background task: reclassify all threads with new categories.
+    Clears old classifications only after new ones are computed."""
     from app.database import async_session
 
     try:
@@ -41,17 +40,6 @@ async def _reclassify_all(user_id: str):
             )
             categories = build_category_dicts(cat_result.scalars().all())
 
-            if not categories:
-                await db.execute(
-                    delete(Classification).where(
-                        Classification.email_thread_id.in_(
-                            select(EmailThread.id).where(EmailThread.user_id == user_id)
-                        )
-                    )
-                )
-                await db.commit()
-                return
-
             threads_result = await db.execute(
                 select(EmailThread).where(EmailThread.user_id == user_id)
             )
@@ -60,21 +48,26 @@ async def _reclassify_all(user_id: str):
             if not threads:
                 return
 
+            if not categories:
+                await db.execute(
+                    update(EmailThread)
+                    .where(EmailThread.user_id == user_id)
+                    .values(category_id=None, is_user_corrected=False, classified_at=None)
+                )
+                await db.commit()
+                return
+
             emails_for_llm = build_emails_for_llm(threads)
 
             classification_map = await classify_emails(
                 emails_for_llm, categories, user.prompt_notes
             )
 
-            await db.execute(
-                delete(Classification).where(
-                    Classification.email_thread_id.in_(
-                        select(EmailThread.id).where(EmailThread.user_id == user_id)
-                    )
-                )
-            )
+            for thread in threads:
+                thread.category_id = None
+                thread.is_user_corrected = False
 
-            persist_classifications(db, threads, classification_map, categories)
+            apply_classifications(threads, classification_map, categories)
 
             await db.commit()
             logger.info("Reclassified %d threads for user %s", len(threads), user_id)
@@ -149,6 +142,12 @@ async def reset_categories(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await db.execute(
+        update(EmailThread)
+        .where(EmailThread.user_id == user.id)
+        .values(category_id=None, is_user_corrected=False, classified_at=None)
+    )
+
     await db.execute(delete(Category).where(Category.user_id == user.id))
 
     for cat in DEFAULT_CATEGORIES:

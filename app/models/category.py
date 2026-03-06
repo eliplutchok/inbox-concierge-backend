@@ -18,4 +18,4 @@ class Category(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     user = relationship("User", back_populates="categories")
-    classifications = relationship("Classification", back_populates="category", cascade="all, delete-orphan")
+    email_threads = relationship("EmailThread", back_populates="category")

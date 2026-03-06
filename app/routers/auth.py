@@ -66,6 +66,9 @@ async def callback(request: Request, code: str, db: AsyncSession = Depends(get_d
     flow = _create_flow(redirect_uri)
 
     code_verifier = request.cookies.get("code_verifier")
+    if not code_verifier:
+        logger.warning("Missing code_verifier cookie — session may have expired")
+        return RedirectResponse(f"{settings.frontend_url}?error=session_expired")
     flow.code_verifier = code_verifier
 
     try:

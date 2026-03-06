@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import auth, categories, classifications, emails
+from app.routers import auth, categories, emails
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,7 +24,6 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(emails.router)
 app.include_router(categories.router)
-app.include_router(classifications.router)
 
 
 @app.get("/health")

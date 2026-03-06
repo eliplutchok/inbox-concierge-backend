@@ -15,7 +15,6 @@ class EmailThreadResponse(BaseModel):
     category_id: UUID | None
     category_name: str | None
     is_user_corrected: bool
-    classification_id: UUID | None
 
     model_config = {"from_attributes": True}
 
@@ -24,3 +23,7 @@ class EmailsResponse(BaseModel):
     emails: list[EmailThreadResponse]
     classified_count: int
     total_count: int
+
+
+class EmailCategoryUpdate(BaseModel):
+    category_id: UUID
