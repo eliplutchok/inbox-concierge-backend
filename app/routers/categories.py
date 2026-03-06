@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -142,6 +143,30 @@ async def bulk_update_categories(
         select(Category).where(Category.user_id == user.id).order_by(Category.name)
     )
     return result.scalars().all()
+
+
+class NotesResponse(BaseModel):
+    notes: str | None
+
+
+class NotesUpdate(BaseModel):
+    notes: str | None
+
+
+@router.get("/notes", response_model=NotesResponse)
+async def get_notes(user: User = Depends(get_current_user)):
+    return NotesResponse(notes=user.prompt_notes)
+
+
+@router.put("/notes", response_model=NotesResponse)
+async def update_notes(
+    body: NotesUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    user.prompt_notes = body.notes
+    await db.commit()
+    return NotesResponse(notes=user.prompt_notes)
 
 
 @router.post("/reset", response_model=list[CategoryResponse])
