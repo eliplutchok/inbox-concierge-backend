@@ -12,8 +12,15 @@ logger = logging.getLogger(__name__)
 client = AsyncOpenAI(api_key=settings.openai_api_key)
 
 INSTRUCTIONS = (
-    "You are an email classification assistant. You will be given an email thread's "
-    "metadata and must classify it into exactly one of the provided categories. "
+    "You are an email classification assistant for Inbox Concierge, an app that "
+    "organizes a user's Gmail inbox into custom categories.\n\n"
+    "You will receive:\n"
+    "1. The user's categories with descriptions\n"
+    "2. Preference notes learned from the user's past corrections (if any)\n"
+    "3. An email's metadata (subject, sender, preview, date)\n\n"
+    "Your job is to classify the email into exactly one of the provided categories. "
+    "The preference notes reflect patterns the user cares about — always respect them "
+    "over general intuition when they apply.\n\n"
     "Respond with ONLY the category name, nothing else."
 )
 
@@ -28,17 +35,20 @@ def _build_input(
         for c in categories
     )
 
-    notes_section = user_notes or "No specific preferences yet."
+    notes_section = user_notes or "No preference notes yet."
 
     return (
         f"## Categories\n{cats_section}\n\n"
-        f"## User Preferences\n{notes_section}\n\n"
-        f"## Email\n"
+        f"## User Preference Notes\n"
+        f"These notes were learned from the user's past corrections. "
+        f"They indicate how this specific user wants their emails sorted:\n"
+        f"{notes_section}\n\n"
+        f"## Email to Classify\n"
         f"Subject: {email.get('subject', '(no subject)')}\n"
         f"From: {email.get('sender', 'unknown')}\n"
         f"Preview: {email.get('snippet', '')}\n"
         f"Date: {email.get('date', 'unknown')}\n\n"
-        f"Classify this email into one of the categories above."
+        f"Which category does this email belong to?"
     )
 
 

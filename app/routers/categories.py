@@ -17,6 +17,7 @@ from app.services.classifier import (
     build_emails_for_llm,
     classify_emails,
 )
+from app.services.feedback import adapt_notes_for_categories
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,13 @@ async def _reclassify_all(user_id: str):
                 select(Category).where(Category.user_id == user_id).order_by(Category.name)
             )
             categories = build_category_dicts(cat_result.scalars().all())
+
+            if user.prompt_notes:
+                updated_notes = await adapt_notes_for_categories(
+                    user.prompt_notes, categories
+                )
+                user.prompt_notes = updated_notes
+                await db.commit()
 
             threads_result = await db.execute(
                 select(EmailThread).where(EmailThread.user_id == user_id)
