@@ -60,6 +60,12 @@ async def get_emails(
     )
     existing_threads = {t.gmail_thread_id: t for t in result.scalars().all()}
 
+    cat_result = await db.execute(
+        select(Category).where(Category.user_id == user.id).order_by(Category.name)
+    )
+    categories = build_category_dicts(cat_result.scalars().all())
+    cat_id_to_name = {c["id"]: c["name"] for c in categories}
+
     unclassified = []
     all_db_threads = []
 
@@ -89,11 +95,6 @@ async def get_emails(
 
     classified_count = 0
     if unclassified:
-        cat_result = await db.execute(
-            select(Category).where(Category.user_id == user.id).order_by(Category.name)
-        )
-        categories = build_category_dicts(cat_result.scalars().all())
-
         if not categories:
             raise HTTPException(status_code=400, detail="No categories configured")
 
@@ -108,9 +109,6 @@ async def get_emails(
         classified_count = apply_classifications(unclassified, classification_map, categories)
 
     await db.commit()
-
-    cat_result = await db.execute(select(Category).where(Category.user_id == user.id))
-    cat_id_to_name = {str(c.id): c.name for c in cat_result.scalars().all()}
 
     email_responses = [
         EmailThreadResponse(

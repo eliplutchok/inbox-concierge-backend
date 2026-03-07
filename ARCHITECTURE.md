@@ -165,12 +165,12 @@ Uses **GPT-4o-mini** via the OpenAI Responses API.
 
 ### feedback.py — Feedback Learning
 
-Uses **GPT-4o** (more capable model needed for nuanced reasoning about user intent).
+Uses **GPT-5.4** (more capable model needed for nuanced reasoning about user intent).
 
 **`learn_from_feedback(email, old_category, new_category, current_notes)`**
 
 When a user reclassifies an email:
-1. Provides the email details and the correction to GPT-4o
+1. Provides the email details and the correction to GPT-5.4
 2. Prompts the LLM to reason about *why* the email belongs in the new category (topic, content type, purpose) rather than just memorizing the sender
 3. Generates updated preference notes that replace the previous ones entirely
 4. Notes prefer thematic rules over per-sender rules
@@ -235,6 +235,6 @@ All settings loaded from `.env` via Pydantic:
 - **Background tasks for heavy work** — reclassification and feedback learning use FastAPI's `BackgroundTasks` so API responses stay fast.
 - **`asyncio.to_thread` for Gmail API** — the Google client library is synchronous, so it's wrapped in `to_thread` to avoid blocking the event loop.
 - **Batch Gmail requests with retries** — batch size of 25 with up to 2 retries and backoff handles Google's per-user rate limits.
-- **Two-tier LLM models** — GPT-4o-mini for fast/cheap classification, GPT-4o for the harder feedback reasoning task.
+- **Two-tier LLM models** — GPT-4o-mini for fast/cheap classification, GPT-5.4 for the harder feedback reasoning task.
 - **OpenAI Responses API** — uses the newer `client.responses.create` API with `instructions` and `input` parameters instead of the older chat completions format.
 - **`store=False`** — explicitly opts out of OpenAI storing request data.

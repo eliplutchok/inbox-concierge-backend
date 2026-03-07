@@ -23,3 +23,11 @@ class CategoryUpdate(BaseModel):
 
 class CategoriesBulkUpdate(BaseModel):
     categories: list[CategoryUpdate]
+
+
+class NotesResponse(BaseModel):
+    notes: str | None
+
+
+class NotesUpdate(BaseModel):
+    notes: str | None

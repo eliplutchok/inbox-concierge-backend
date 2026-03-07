@@ -1,7 +1,6 @@
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +10,7 @@ from app.database import get_db
 from app.models.category import Category
 from app.models.email_thread import EmailThread
 from app.models.user import User
-from app.schemas.category import CategoriesBulkUpdate, CategoryResponse
+from app.schemas.category import CategoriesBulkUpdate, CategoryResponse, NotesResponse, NotesUpdate
 from app.services.classifier import (
     apply_classifications,
     build_category_dicts,
@@ -143,14 +142,6 @@ async def bulk_update_categories(
         select(Category).where(Category.user_id == user.id).order_by(Category.name)
     )
     return result.scalars().all()
-
-
-class NotesResponse(BaseModel):
-    notes: str | None
-
-
-class NotesUpdate(BaseModel):
-    notes: str | None
 
 
 @router.get("/notes", response_model=NotesResponse)

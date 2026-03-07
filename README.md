@@ -23,4 +23,4 @@ See [SETUP.md](SETUP.md) for detailed setup instructions including Google Cloud 
 - `GET /api/categories` — List categories
 - `PUT /api/categories` — Bulk update categories
 - `POST /api/categories/reset` — Reset to defaults
-- `PATCH /api/classifications/{id}` — Update a classification (drag-and-drop)
+- `PATCH /api/emails/{id}/category` — Reclassify an email (drag-and-drop)
