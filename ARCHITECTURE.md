@@ -11,11 +11,12 @@ A FastAPI backend that authenticates users via Google OAuth, fetches their Gmail
 ## Core Features
 
 - **Google OAuth 2.0** — PKCE-secured authentication with `gmail.readonly` scope
-- **Gmail integration** — batch-fetched threads with retry logic for rate limits
+- **Gmail integration** — batch-fetched threads (up to 200) with retry logic for rate limits
 - **LLM classification** — GPT-4o-mini classifies emails into user-defined categories
-- **Feedback learning** — GPT-4o analyzes user corrections to generate preference notes that improve future classifications
-- **Category management** — CRUD with automatic reclassification on changes
-- **Notes adaptation** — when categories change, preference notes are automatically cleaned up by an LLM
+- **Feedback learning** — GPT-5.4 analyzes user corrections to generate preference notes that improve future classifications
+- **Synchronous reclassification** — dedicated endpoint reclassifies all emails and returns results directly (no background polling)
+- **Category management** — CRUD for categories; reclassification is explicitly triggered by the user
+- **Notes adaptation** — when reclassification runs, preference notes are automatically adapted to the current category set by an LLM
 - **Token management** — encrypted storage of Google tokens, automatic refresh persistence
 
 ## Project Structure
@@ -43,7 +44,7 @@ app/
 └── services/
     ├── gmail.py               # Gmail API integration (batch fetch, parsing)
     ├── classifier.py          # LLM classification (GPT-4o-mini)
-    └── feedback.py            # Feedback learning + notes adaptation (GPT-4o)
+    └── feedback.py            # Feedback learning + notes adaptation (GPT-5.4)
 ```
 
 ## Database Schema
@@ -101,16 +102,17 @@ All tables use UUID primary keys and `created_at` timestamps (from `Base`).
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/` | Fetches Gmail threads, upserts to DB, classifies unclassified ones, returns all |
+| GET | `/` | Fetches Gmail threads (up to 200), upserts to DB, classifies unclassified ones, returns all |
 | PATCH | `/{email_id}/category` | Reclassifies an email, marks as user-corrected, triggers background feedback learning |
+| POST | `/reclassify` | Reclassifies the 200 most recent emails synchronously, returns full `EmailsResponse` |
 
 ### Categories (`/api/categories`)
 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/` | Lists user's categories (alphabetical) |
-| PUT | `/` | Bulk update categories (add/edit/delete), triggers background reclassification |
-| POST | `/reset` | Resets to default categories, triggers background reclassification |
+| PUT | `/` | Bulk update categories (add/edit/delete) |
+| POST | `/reset` | Resets to default categories |
 | GET | `/notes` | Returns user's AI preference notes |
 | PUT | `/notes` | Updates user's preference notes |
 
@@ -178,8 +180,8 @@ When a user reclassifies an email:
 
 **`adapt_notes_for_categories(current_notes, new_categories)`**
 
-When a user changes their categories:
-1. Provides the new category set and existing notes to GPT-4o
+Called during reclassification when preference notes exist:
+1. Provides the current category set and existing notes to GPT-5.4
 2. LLM removes notes referencing deleted categories, adapts notes to renamed categories
 3. Returns `None` if no notes remain relevant
 
@@ -199,22 +201,37 @@ The main data-loading endpoint. Orchestrates:
 
 ### emails.py — `PATCH /{email_id}/category`
 
-Handles user reclassification:
+Handles user reclassification of a single email:
 
 1. Updates `category_id` and sets `is_user_corrected = True`
 2. Fires `_run_feedback` as a background task (does not block the response)
 3. Background task loads user, calls `learn_from_feedback`, saves updated notes
 
-### categories.py — Background Reclassification
+### emails.py — `POST /api/emails/reclassify`
 
-When categories change (`PUT /api/categories` or `POST /api/categories/reset`):
+Reclassifies all emails synchronously and returns the results:
 
-1. The endpoint updates categories in the DB and returns immediately
-2. `_reclassify_all` runs as a background task:
-   - Adapts preference notes to the new category set (if notes exist)
-   - Resets all email classifications (`category_id = NULL`)
-   - Reclassifies all emails with the updated categories and notes
-   - Commits the new classifications
+1. Calls `reclassify_all()` which adapts preference notes (if any) and reclassifies the 200 most recent threads
+2. Queries the reclassified emails from the DB
+3. Returns a full `EmailsResponse` — the frontend updates immediately with no polling
+
+### categories.py — `reclassify_all(user_id, db)`
+
+Shared reclassification logic used by `POST /api/emails/reclassify`:
+
+1. Adapts preference notes to the current category set (if notes exist)
+2. Loads the 200 most recent email threads
+3. Resets all classifications (`category_id = NULL`, `is_user_corrected = False`)
+4. Classifies all threads with the LLM using updated categories and notes
+5. Commits the new classifications
+
+### categories.py — `PUT /api/categories`
+
+Saves category changes (add/edit/delete) without triggering reclassification. The frontend decides whether to follow up with a `POST /api/emails/reclassify` call based on the user's action ("Save" vs "Save & Recategorize").
+
+### categories.py — `POST /api/categories/reset`
+
+Resets to default categories without triggering reclassification. The frontend follows up with `POST /api/emails/reclassify` to reclassify all emails.
 
 ## Configuration
 
@@ -234,9 +251,11 @@ All settings loaded from `.env` via Pydantic:
 ## Key Design Decisions
 
 - **Merged classifications into email_threads** — classification is 1:1 with threads, so a separate table added complexity without benefit. `category_id`, `is_user_corrected`, and `classified_at` live directly on the email thread.
-- **Background tasks for heavy work** — reclassification and feedback learning use FastAPI's `BackgroundTasks` so API responses stay fast.
+- **Synchronous reclassification** — `POST /api/emails/reclassify` awaits the full reclassification and returns results directly. This eliminates the need for polling or WebSocket push and keeps the frontend simple. Classification of 200 emails takes only a few seconds.
+- **Background tasks only for feedback learning** — feedback learning (when a user corrects a single email) still uses `BackgroundTasks` since the user doesn't need to wait for the AI to update preference notes.
 - **`asyncio.to_thread` for Gmail API** — the Google client library is synchronous, so it's wrapped in `to_thread` to avoid blocking the event loop.
 - **Batch Gmail requests with retries** — batch size of 25 with up to 2 retries and backoff handles Google's per-user rate limits.
 - **Two-tier LLM models** — GPT-4o-mini for fast/cheap classification, GPT-5.4 for the harder feedback reasoning task.
 - **OpenAI Responses API** — uses the newer `client.responses.create` API with `instructions` and `input` parameters instead of the older chat completions format.
 - **`store=False`** — explicitly opts out of OpenAI storing request data.
+- **200-thread limit** — reclassification is capped at the 200 most recent threads, matching the Gmail fetch limit, to keep response times reasonable.
