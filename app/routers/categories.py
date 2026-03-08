@@ -109,6 +109,8 @@ async def bulk_update_categories(
         if cat_id not in incoming_ids:
             await db.delete(cat)
 
+    await db.flush()
+
     for cat_data in body.categories:
         if cat_data.id and str(cat_data.id) in existing:
             cat = existing[str(cat_data.id)]
