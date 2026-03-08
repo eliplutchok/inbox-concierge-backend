@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import timezone
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
@@ -120,6 +120,22 @@ async def callback(request: Request, code: str, db: AsyncSession = Depends(get_d
 
     response.delete_cookie("code_verifier")
     return response
+
+
+@router.get("/demo")
+async def demo_login(db: AsyncSession = Depends(get_db)):
+    if not settings.demo_user_google_id:
+        raise HTTPException(status_code=404, detail="Demo account not configured")
+
+    result = await db.execute(
+        select(User).where(User.google_id == settings.demo_user_google_id)
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Demo user not found in database")
+
+    token = create_jwt(user.id)
+    return {"token": token}
 
 
 @router.get("/me", response_model=UserResponse)

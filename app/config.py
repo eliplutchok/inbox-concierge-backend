@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     jwt_secret: str
     encryption_key: str
     frontend_url: str = "http://localhost:5173"
+    demo_user_google_id: str | None = None
 
     model_config = {"env_file": ".env"}
 

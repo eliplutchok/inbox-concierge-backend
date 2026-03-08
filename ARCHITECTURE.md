@@ -94,6 +94,7 @@ All tables use UUID primary keys and `created_at` timestamps (from `Base`).
 |---|---|---|
 | GET | `/login` | Initiates Google OAuth flow (redirects to Google) |
 | GET | `/callback` | OAuth callback, exchanges code for tokens, creates/updates user, returns JWT via redirect |
+| GET | `/demo` | Returns a JWT for the pre-configured demo user (no OAuth required) |
 | GET | `/me` | Returns authenticated user info |
 
 ### Emails (`/api/emails`)
@@ -228,6 +229,7 @@ All settings loaded from `.env` via Pydantic:
 | `JWT_SECRET` | Secret for signing JWTs |
 | `ENCRYPTION_KEY` | Fernet key for encrypting stored tokens |
 | `FRONTEND_URL` | Frontend URL for CORS and redirects (default: `http://localhost:5173`) |
+| `DEMO_USER_GOOGLE_ID` | (Optional) Google ID of the demo user for one-click demo login |
 
 ## Key Design Decisions
 
