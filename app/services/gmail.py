@@ -72,7 +72,7 @@ def fetch_threads(
     service, creds = _build_gmail_service(access_token, refresh_token)
 
     threads_response = (
-        service.users().threads().list(userId="me", maxResults=max_results).execute()
+        service.users().threads().list(userId="me", q="in:inbox", maxResults=max_results).execute()
     )
     thread_ids = [t["id"] for t in threads_response.get("threads", [])]
 
