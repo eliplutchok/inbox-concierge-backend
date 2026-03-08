@@ -26,6 +26,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/emails", tags=["emails"])
 
 
+def _build_email_responses(threads, cat_id_to_name: dict) -> list[EmailThreadResponse]:
+    return [
+        EmailThreadResponse(
+            id=thread.id,
+            gmail_thread_id=thread.gmail_thread_id,
+            subject=thread.subject,
+            sender=thread.sender,
+            snippet=thread.snippet,
+            date=thread.date,
+            gmail_link=build_gmail_link(thread.gmail_thread_id),
+            category_id=thread.category_id,
+            category_name=cat_id_to_name.get(str(thread.category_id)) if thread.category_id else None,
+            is_user_corrected=thread.is_user_corrected,
+            classified_at=thread.classified_at,
+        )
+        for thread in threads
+    ]
+
+
 @router.get("", response_model=EmailsResponse)
 async def get_emails(
     user: User = Depends(get_current_user),
@@ -110,27 +129,10 @@ async def get_emails(
 
     await db.commit()
 
-    email_responses = [
-        EmailThreadResponse(
-            id=thread.id,
-            gmail_thread_id=thread.gmail_thread_id,
-            subject=thread.subject,
-            sender=thread.sender,
-            snippet=thread.snippet,
-            date=thread.date,
-            gmail_link=build_gmail_link(thread.gmail_thread_id),
-            category_id=thread.category_id,
-            category_name=cat_id_to_name.get(str(thread.category_id)) if thread.category_id else None,
-            is_user_corrected=thread.is_user_corrected,
-            classified_at=thread.classified_at,
-        )
-        for thread in all_db_threads
-    ]
-
     return EmailsResponse(
-        emails=email_responses,
+        emails=_build_email_responses(all_db_threads, cat_id_to_name),
         classified_count=classified_count,
-        total_count=len(email_responses),
+        total_count=len(all_db_threads),
     )
 
 
@@ -198,3 +200,33 @@ async def update_email_category(
     )
 
     return {"status": "ok"}
+
+
+@router.post("/reclassify", response_model=EmailsResponse)
+async def reclassify_all_emails(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.routers.categories import reclassify_all
+
+    await reclassify_all(str(user.id), db)
+
+    cat_result = await db.execute(
+        select(Category).where(Category.user_id == user.id).order_by(Category.name)
+    )
+    categories = build_category_dicts(cat_result.scalars().all())
+    cat_id_to_name = {c["id"]: c["name"] for c in categories}
+
+    threads_result = await db.execute(
+        select(EmailThread)
+        .where(EmailThread.user_id == user.id)
+        .order_by(EmailThread.date.desc())
+        .limit(200)
+    )
+    threads = threads_result.scalars().all()
+
+    return EmailsResponse(
+        emails=_build_email_responses(threads, cat_id_to_name),
+        classified_count=len(threads),
+        total_count=len(threads),
+    )
