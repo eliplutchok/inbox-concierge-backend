@@ -117,6 +117,7 @@ async def callback(request: Request, code: str, db: AsyncSession = Depends(get_d
 
     token = create_jwt(user.id)
     response = RedirectResponse(f"{settings.frontend_url}?token={token}")
+
     response.delete_cookie("code_verifier")
     return response
 
