@@ -24,9 +24,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/categories", tags=["categories"])
 
 
-async def reclassify_all(user_id: str, db: AsyncSession):
+async def reclassify_all(user_id: str, db: AsyncSession, adapt_notes: bool = True):
     """Reclassify all threads for a user with their current categories and notes.
-    Caller is responsible for committing beforehand so category/note changes are visible."""
+    Caller is responsible for committing beforehand so category/note changes are visible.
+    Set adapt_notes=False to skip LLM note adaptation (use when categories haven't changed)."""
     user_result = await db.execute(select(User).where(User.id == user_id))
     user = user_result.scalar_one_or_none()
     if not user or not user.access_token:
@@ -37,7 +38,7 @@ async def reclassify_all(user_id: str, db: AsyncSession):
     )
     categories = build_category_dicts(cat_result.scalars().all())
 
-    if user.prompt_notes:
+    if adapt_notes and user.prompt_notes:
         updated_notes = await adapt_notes_for_categories(
             user.prompt_notes, categories
         )
