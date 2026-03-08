@@ -12,7 +12,7 @@ A FastAPI backend that authenticates users via Google OAuth, fetches their Gmail
 
 - **Google OAuth 2.0** — PKCE-secured authentication with `gmail.readonly` scope
 - **Gmail integration** — batch-fetched threads (up to 200) with retry logic for rate limits
-- **LLM classification** — GPT-5-mini classifies emails into user-defined categories
+- **LLM classification** — GPT-4.1-mini classifies emails into user-defined categories
 - **Feedback learning** — GPT-5.4 analyzes user corrections to generate preference notes that improve future classifications
 - **Synchronous reclassification** — dedicated endpoint reclassifies all emails and returns results directly (no background polling)
 - **Category management** — CRUD for categories; reclassification is explicitly triggered by the user
@@ -151,7 +151,7 @@ Fetches the user's latest email threads using the Gmail API:
 
 ### classifier.py — LLM Classification
 
-Uses **GPT-5-mini** via the OpenAI Responses API.
+Uses **GPT-4.1-mini** via the OpenAI Responses API.
 
 **Three-part prompt structure:**
 1. **Instructions** — system-level context about Inbox Concierge and the classification task
@@ -255,7 +255,7 @@ All settings loaded from `.env` via Pydantic:
 - **Background tasks only for feedback learning** — feedback learning (when a user corrects a single email) still uses `BackgroundTasks` since the user doesn't need to wait for the AI to update preference notes.
 - **`asyncio.to_thread` for Gmail API** — the Google client library is synchronous, so it's wrapped in `to_thread` to avoid blocking the event loop.
 - **Batch Gmail requests with retries** — batch size of 25 with up to 2 retries and backoff handles Google's per-user rate limits.
-- **Two-tier LLM models** — GPT-5-mini for fast/cheap classification, GPT-5.4 for the harder feedback reasoning task.
+- **Two-tier LLM models** — GPT-4.1-mini for fast/cheap classification, GPT-5.4 for the harder feedback reasoning task.
 - **OpenAI Responses API** — uses the newer `client.responses.create` API with `instructions` and `input` parameters instead of the older chat completions format.
 - **`store=False`** — explicitly opts out of OpenAI storing request data.
 - **200-thread limit** — reclassification is capped at the 200 most recent threads, matching the Gmail fetch limit, to keep response times reasonable.
