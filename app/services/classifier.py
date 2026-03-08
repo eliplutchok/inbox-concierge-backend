@@ -64,7 +64,6 @@ async def classify_email(
         model="gpt-5-mini",
         instructions=INSTRUCTIONS,
         input=_build_input(email, categories, user_notes),
-        temperature=0,
         max_output_tokens=50,
         store=False,
     )
