@@ -43,7 +43,7 @@ app/
 │   └── categories.py          # /api/categories — CRUD, reset, notes
 └── services/
     ├── gmail.py               # Gmail API integration (batch fetch, parsing)
-    ├── classifier.py          # LLM classification (GPT-4o-mini)
+    ├── classifier.py          # LLM classification (GPT-4.1-mini)
     └── feedback.py            # Feedback learning + notes adaptation (GPT-5.4)
 ```
 
@@ -153,10 +153,11 @@ Fetches the user's latest email threads using the Gmail API:
 
 Uses **GPT-4.1-mini** via the OpenAI Responses API.
 
-**Three-part prompt structure:**
+**Four-part prompt structure:**
 1. **Instructions** — system-level context about Inbox Concierge and the classification task
 2. **Categories** — user's categories with descriptions
 3. **User preference notes** — learned from past corrections, override general intuition
+4. **User override hint** (conditional) — if the user previously manually assigned the email to a category, the prompt includes a "User Override" line telling the LLM to respect that choice unless categories have changed. This ensures reclassification doesn't blindly discard user corrections.
 
 **`classify_emails(emails, categories, user_notes, max_concurrent=20)`** — classifies multiple emails concurrently with a semaphore to limit parallelism. Returns a `{thread_id: category_name}` mapping.
 
@@ -164,7 +165,7 @@ Uses **GPT-4.1-mini** via the OpenAI Responses API.
 
 **Helper functions:**
 - `build_category_dicts(orm_categories)` — converts ORM Category objects to dicts
-- `build_emails_for_llm(orm_threads)` — converts ORM EmailThread objects to dicts
+- `build_emails_for_llm(orm_threads, categories=None)` — converts ORM EmailThread objects to dicts. When `categories` is provided, includes `user_assigned_category` for threads the user manually corrected, enabling the classifier to respect user overrides during reclassification.
 
 ### feedback.py — Feedback Learning
 
@@ -221,9 +222,10 @@ Shared reclassification logic used by `POST /api/emails/reclassify`:
 
 1. If preference notes exist, adapts them to the current category set via LLM (removes references to deleted categories, adapts renamed ones, returns notes unchanged if no adaptation is needed)
 2. Loads the 200 most recent email threads
-3. Resets all classifications (`category_id = NULL`, `is_user_corrected = False`)
-4. Classifies all threads with the LLM using current categories and notes
-5. Commits the new classifications
+3. Builds email dicts for the LLM, including user override hints for threads the user manually corrected (so the LLM knows to respect those choices)
+4. Classifies all threads with the LLM using current categories, notes, and user override context
+5. Resets all classifications (`category_id = NULL`, `is_user_corrected = False`), then applies the new LLM results
+6. Commits the new classifications
 
 ### categories.py — `PUT /api/categories`
 
@@ -255,6 +257,7 @@ All settings loaded from `.env` via Pydantic:
 - **Background tasks only for feedback learning** — feedback learning (when a user corrects a single email) still uses `BackgroundTasks` since the user doesn't need to wait for the AI to update preference notes.
 - **`asyncio.to_thread` for Gmail API** — the Google client library is synchronous, so it's wrapped in `to_thread` to avoid blocking the event loop.
 - **Batch Gmail requests with retries** — batch size of 25 with up to 2 retries and backoff handles Google's per-user rate limits.
+- **Correction-aware reclassification** — when reclassifying, the LLM receives a "User Override" hint for emails the user manually corrected, so it strongly favors keeping user choices while still reclassifying if categories have fundamentally changed.
 - **Two-tier LLM models** — GPT-4.1-mini for fast/cheap classification, GPT-5.4 for the harder feedback reasoning task.
 - **OpenAI Responses API** — uses the newer `client.responses.create` API with `instructions` and `input` parameters instead of the older chat completions format.
 - **`store=False`** — explicitly opts out of OpenAI storing request data.
