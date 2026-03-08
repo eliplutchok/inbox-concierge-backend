@@ -204,13 +204,12 @@ async def update_email_category(
 
 @router.post("/reclassify", response_model=EmailsResponse)
 async def reclassify_all_emails(
-    adapt_notes: bool = False,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     from app.routers.categories import reclassify_all
 
-    await reclassify_all(str(user.id), db, adapt_notes=adapt_notes)
+    await reclassify_all(str(user.id), db)
 
     cat_result = await db.execute(
         select(Category).where(Category.user_id == user.id).order_by(Category.name)

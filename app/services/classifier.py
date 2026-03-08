@@ -61,7 +61,7 @@ async def classify_email(
     category_names = [c["name"] for c in categories]
 
     response = await client.responses.create(
-        model="gpt-4o-mini",
+        model="gpt-5-mini",
         instructions=INSTRUCTIONS,
         input=_build_input(email, categories, user_notes),
         temperature=0,

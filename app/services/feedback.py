@@ -94,12 +94,13 @@ async def adapt_notes_for_categories(
     )
 
     user_input = (
-        f"The user's new categories are:\n{cats_list}\n\n"
-        f"Current preference notes (written for the old category set):\n"
+        f"The user's current categories are:\n{cats_list}\n\n"
+        f"Current preference notes:\n"
         f"{current_notes}\n\n"
-        f"Update these notes to work with the new categories. Remove anything "
+        f"Check these notes against the current categories. Remove anything "
         f"that references categories that no longer exist. Adapt notes where a "
-        f"similar category exists under a new name."
+        f"similar category exists under a new name. If all referenced categories "
+        f"still exist and no changes are needed, return the notes exactly as-is."
     )
 
     response = await client.responses.create(

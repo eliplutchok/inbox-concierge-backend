@@ -12,7 +12,7 @@ A FastAPI backend that authenticates users via Google OAuth, fetches their Gmail
 
 - **Google OAuth 2.0** — PKCE-secured authentication with `gmail.readonly` scope
 - **Gmail integration** — batch-fetched threads (up to 200) with retry logic for rate limits
-- **LLM classification** — GPT-4o-mini classifies emails into user-defined categories
+- **LLM classification** — GPT-5-mini classifies emails into user-defined categories
 - **Feedback learning** — GPT-5.4 analyzes user corrections to generate preference notes that improve future classifications
 - **Synchronous reclassification** — dedicated endpoint reclassifies all emails and returns results directly (no background polling)
 - **Category management** — CRUD for categories; reclassification is explicitly triggered by the user
@@ -104,7 +104,7 @@ All tables use UUID primary keys and `created_at` timestamps (from `Base`).
 |---|---|---|
 | GET | `/` | Fetches Gmail threads (up to 200), upserts to DB, classifies unclassified ones, returns all |
 | PATCH | `/{email_id}/category` | Reclassifies an email, marks as user-corrected, triggers background feedback learning |
-| POST | `/reclassify` | Reclassifies the 200 most recent emails synchronously, returns full `EmailsResponse` |
+| POST | `/reclassify` | Reclassifies the 200 most recent emails synchronously (adapts notes if needed), returns full `EmailsResponse` |
 
 ### Categories (`/api/categories`)
 
@@ -151,7 +151,7 @@ Fetches the user's latest email threads using the Gmail API:
 
 ### classifier.py — LLM Classification
 
-Uses **GPT-4o-mini** via the OpenAI Responses API.
+Uses **GPT-5-mini** via the OpenAI Responses API.
 
 **Three-part prompt structure:**
 1. **Instructions** — system-level context about Inbox Concierge and the classification task
@@ -211,7 +211,7 @@ Handles user reclassification of a single email:
 
 Reclassifies all emails synchronously and returns the results:
 
-1. Calls `reclassify_all()` which adapts preference notes (if any) and reclassifies the 200 most recent threads
+1. Calls `reclassify_all()` which adapts preference notes (if any exist) and reclassifies the 200 most recent threads
 2. Queries the reclassified emails from the DB
 3. Returns a full `EmailsResponse` — the frontend updates immediately with no polling
 
@@ -219,10 +219,10 @@ Reclassifies all emails synchronously and returns the results:
 
 Shared reclassification logic used by `POST /api/emails/reclassify`:
 
-1. Adapts preference notes to the current category set (if notes exist)
+1. If preference notes exist, adapts them to the current category set via LLM (removes references to deleted categories, adapts renamed ones, returns notes unchanged if no adaptation is needed)
 2. Loads the 200 most recent email threads
 3. Resets all classifications (`category_id = NULL`, `is_user_corrected = False`)
-4. Classifies all threads with the LLM using updated categories and notes
+4. Classifies all threads with the LLM using current categories and notes
 5. Commits the new classifications
 
 ### categories.py — `PUT /api/categories`
@@ -255,7 +255,7 @@ All settings loaded from `.env` via Pydantic:
 - **Background tasks only for feedback learning** — feedback learning (when a user corrects a single email) still uses `BackgroundTasks` since the user doesn't need to wait for the AI to update preference notes.
 - **`asyncio.to_thread` for Gmail API** — the Google client library is synchronous, so it's wrapped in `to_thread` to avoid blocking the event loop.
 - **Batch Gmail requests with retries** — batch size of 25 with up to 2 retries and backoff handles Google's per-user rate limits.
-- **Two-tier LLM models** — GPT-4o-mini for fast/cheap classification, GPT-5.4 for the harder feedback reasoning task.
+- **Two-tier LLM models** — GPT-5-mini for fast/cheap classification, GPT-5.4 for the harder feedback reasoning task.
 - **OpenAI Responses API** — uses the newer `client.responses.create` API with `instructions` and `input` parameters instead of the older chat completions format.
 - **`store=False`** — explicitly opts out of OpenAI storing request data.
 - **200-thread limit** — reclassification is capped at the 200 most recent threads, matching the Gmail fetch limit, to keep response times reasonable.
