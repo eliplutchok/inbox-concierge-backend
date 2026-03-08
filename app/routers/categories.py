@@ -64,7 +64,7 @@ async def reclassify_all(user_id: str, db: AsyncSession):
         await db.commit()
         return
 
-    emails_for_llm = build_emails_for_llm(threads)
+    emails_for_llm = build_emails_for_llm(threads, categories)
 
     classification_map = await classify_emails(
         emails_for_llm, categories, user.prompt_notes

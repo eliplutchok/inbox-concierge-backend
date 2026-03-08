@@ -47,8 +47,15 @@ def _build_input(
         f"Subject: {email.get('subject', '(no subject)')}\n"
         f"From: {email.get('sender', 'unknown')}\n"
         f"Preview: {email.get('snippet', '')}\n"
-        f"Date: {email.get('date', 'unknown')}\n\n"
-        f"Which category does this email belong to?"
+        f"Date: {email.get('date', 'unknown')}\n"
+        + (
+            f"User Override: The user previously manually assigned this email to "
+            f"'{email['user_assigned_category']}'. Respect this choice unless the "
+            f"categories have changed in a way that makes it no longer appropriate.\n"
+            if email.get("user_assigned_category")
+            else ""
+        )
+        + f"\nWhich category does this email belong to?"
     )
 
 
@@ -110,8 +117,11 @@ def build_category_dicts(categories: Sequence[Any]) -> list[dict]:
     ]
 
 
-def build_emails_for_llm(threads: Sequence[Any]) -> list[dict]:
+def build_emails_for_llm(
+    threads: Sequence[Any], categories: list[dict] | None = None
+) -> list[dict]:
     """Convert ORM EmailThread objects to dicts for classify_emails."""
+    cat_id_to_name = {c["id"]: c["name"] for c in categories} if categories else {}
     return [
         {
             "gmail_thread_id": t.gmail_thread_id,
@@ -119,6 +129,9 @@ def build_emails_for_llm(threads: Sequence[Any]) -> list[dict]:
             "sender": t.sender,
             "snippet": t.snippet,
             "date": str(t.date) if t.date else None,
+            "user_assigned_category": cat_id_to_name.get(str(t.category_id))
+            if t.is_user_corrected
+            else None,
         }
         for t in threads
     ]
