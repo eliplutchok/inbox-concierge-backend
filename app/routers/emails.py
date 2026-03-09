@@ -17,6 +17,7 @@ from app.services.classifier import (
     build_category_dicts,
     build_emails_for_llm,
     classify_emails,
+    reclassify_all,
 )
 from app.services.feedback import learn_from_feedback
 from app.services.gmail import build_gmail_link, fetch_threads
@@ -207,8 +208,6 @@ async def reclassify_all_emails(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.routers.categories import reclassify_all
-
     await reclassify_all(str(user.id), db)
 
     cat_result = await db.execute(

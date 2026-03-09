@@ -1,5 +1,3 @@
-import logging
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,73 +9,8 @@ from app.models.category import Category
 from app.models.email_thread import EmailThread
 from app.models.user import User
 from app.schemas.category import CategoriesBulkUpdate, CategoryResponse, NotesResponse, NotesUpdate
-from app.services.classifier import (
-    apply_classifications,
-    build_category_dicts,
-    build_emails_for_llm,
-    classify_emails,
-)
-from app.services.feedback import adapt_notes_for_categories
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/categories", tags=["categories"])
-
-
-async def reclassify_all(user_id: str, db: AsyncSession):
-    """Reclassify all threads for a user with their current categories and notes.
-    Caller is responsible for committing beforehand so category/note changes are visible."""
-    user_result = await db.execute(select(User).where(User.id == user_id))
-    user = user_result.scalar_one_or_none()
-    if not user or not user.access_token:
-        return
-
-    cat_result = await db.execute(
-        select(Category).where(Category.user_id == user_id).order_by(Category.name)
-    )
-    categories = build_category_dicts(cat_result.scalars().all())
-
-    if user.prompt_notes:
-        updated_notes = await adapt_notes_for_categories(
-            user.prompt_notes, categories
-        )
-        user.prompt_notes = updated_notes
-
-    threads_result = await db.execute(
-        select(EmailThread)
-        .where(EmailThread.user_id == user_id)
-        .order_by(EmailThread.date.desc())
-        .limit(200)
-    )
-    threads = threads_result.scalars().all()
-
-    if not threads:
-        await db.commit()
-        return
-
-    if not categories:
-        await db.execute(
-            update(EmailThread)
-            .where(EmailThread.user_id == user_id)
-            .values(category_id=None, is_user_corrected=False, classified_at=None)
-        )
-        await db.commit()
-        return
-
-    emails_for_llm = build_emails_for_llm(threads, categories)
-
-    classification_map = await classify_emails(
-        emails_for_llm, categories, user.prompt_notes
-    )
-
-    for thread in threads:
-        thread.category_id = None
-        thread.is_user_corrected = False
-
-    apply_classifications(threads, classification_map, categories)
-
-    await db.commit()
-    logger.info("Reclassified %d threads for user %s", len(threads), user_id)
 
 
 @router.get("", response_model=list[CategoryResponse])
