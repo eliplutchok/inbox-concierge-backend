@@ -208,7 +208,7 @@ async def reclassify_all_emails(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await reclassify_all(str(user.id), db)
+    await reclassify_all(user, db)
 
     cat_result = await db.execute(
         select(Category).where(Category.user_id == user.id).order_by(Category.name)

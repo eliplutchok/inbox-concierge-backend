@@ -158,21 +158,15 @@ def apply_classifications(
     return count
 
 
-async def reclassify_all(user_id: str, db: AsyncSession):
+async def reclassify_all(user: Any, db: AsyncSession):
     """Reclassify all threads for a user with their current categories and notes.
     Caller is responsible for committing beforehand so category/note changes are visible."""
     from app.models.category import Category
     from app.models.email_thread import EmailThread
-    from app.models.user import User
     from app.services.feedback import adapt_notes_for_categories
 
-    user_result = await db.execute(select(User).where(User.id == user_id))
-    user = user_result.scalar_one_or_none()
-    if not user or not user.access_token:
-        return
-
     cat_result = await db.execute(
-        select(Category).where(Category.user_id == user_id).order_by(Category.name)
+        select(Category).where(Category.user_id == user.id).order_by(Category.name)
     )
     categories = build_category_dicts(cat_result.scalars().all())
 
@@ -184,7 +178,7 @@ async def reclassify_all(user_id: str, db: AsyncSession):
 
     threads_result = await db.execute(
         select(EmailThread)
-        .where(EmailThread.user_id == user_id)
+        .where(EmailThread.user_id == user.id)
         .order_by(EmailThread.date.desc())
         .limit(200)
     )
@@ -197,7 +191,7 @@ async def reclassify_all(user_id: str, db: AsyncSession):
     if not categories:
         await db.execute(
             update(EmailThread)
-            .where(EmailThread.user_id == user_id)
+            .where(EmailThread.user_id == user.id)
             .values(category_id=None, is_user_corrected=False, classified_at=None)
         )
         await db.commit()
@@ -216,4 +210,4 @@ async def reclassify_all(user_id: str, db: AsyncSession):
     apply_classifications(threads, classification_map, categories)
 
     await db.commit()
-    logger.info("Reclassified %d threads for user %s", len(threads), user_id)
+    logger.info("Reclassified %d threads for user %s", len(threads), user.id)
